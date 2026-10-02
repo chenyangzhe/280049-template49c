@@ -36,7 +36,11 @@
 
 - 编译产物、`.trae` / `.mcp` / `.claude` 等本地缓存与日志均不入库（见 `.gitignore`）
 - `App/src/OLED.c`、`App/src/vofa*.c` 分别负责 OLED 显示与 VOFA+ 波形上传
-- 工程不写死本机路径：SDK / 工具链位置一律走 CCS 变量（`${COM_TI_C2000WARE_*}`、`${CG_TOOL_ROOT}`、
-  `${workspace_loc:${ProjName}}`），跨机器或队友克隆后 `.cproject` / `makefile.targets` 都无需手改。
-  前提是本机已装好下列组件（版本需与工程一致），CCS 会自动解析这些变量：
-  C2000Ware `26.01.00.00` + SysConfig `1.28.1` + TI C2000 CGT `22.6.3.LTS`
+- **跨机器 / 队友克隆时需要留意的唯一一处**：`.cproject` 里有 9 条写死的安装路径 —— 7 处指向
+  `C2000Ware_26_01_00_00/.metadata/sdk.json`（SysConfig 的产品清单，RAM / FLASH_RUN / Debug 各配置合计 7 处），
+  2 处指向 fastRTS / CGT 的库文件。C2000Ware 或编译器装在别的位置时，把这 9 条一并替换。
+  **不要**把它们改成 `${COM_TI_C2000WARE_SYSCONFIG_MANIFEST}` 之类的写法：本工程实测该变量展开为空，
+  会让 SysConfig 调用丢掉 `-s` 参数、`board.c/h` 不再生成。
+- 其余路径都走 CCS 变量（`${workspace_loc:${ProjName}}`、`${CG_TOOL_ROOT}`），无需手改；
+  `makefile.targets` 也已改为不写死路径。
+- 需要安装的组件（版本需与工程一致）：C2000Ware `26.01.00.00` + SysConfig `1.28.1` + TI C2000 CGT `22.6.3.LTS`
