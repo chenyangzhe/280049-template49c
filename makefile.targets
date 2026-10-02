@@ -13,8 +13,8 @@
 #   链接时报  error #10008-D: cannot find file "./Bsp/f28004x_codestartbranch.obj"
 #
 # 原因：
-#   工程模型里 Bsp 文件夹下挂着一个指向
-#     D:/ti/CCS/C2000Ware_26_01_00_00/device_support/f28004x/common/source/f28004x_codestartbranch.asm
+#   工程模型里 Bsp 文件夹下挂着一个指向 C2000Ware 安装目录里
+#     device_support/f28004x/common/source/f28004x_codestartbranch.asm
 #   的"工程外文件"（该条目在 .cproject / .project 里都查不到，只存在于 IDE 的工程模型里，
 #   在 CCS 里右键 Bsp 也不一定看得见）。
 #   CCS 给工程外文件生成的规则漏掉了 --obj_directory，于是目标文件被写到了构建根目录
@@ -25,13 +25,17 @@
 #   构建时 make 会打印一条 "overriding recipe for target ..." 警告，属正常现象。
 #
 # 注意：
-#   如果以后升级了 C2000 编译器或改了工程路径，请同步更新下面的 CL2000 / CODESTART_ASM。
+#   下面两条已经做成与机器无关，换电脑 / 换队友克隆后都不用手改：
+#     - CL2000 用 CCS 在生成的 makefile 里已经定义好的 $(CG_TOOL_ROOT)，换编译器版本不用改
+#     - CODESTART_ASM 指向工程内的 Device/f28004x_codestartbranch.asm，换 C2000Ware 版本或
+#       安装路径也不用改（与 C2000Ware 安装里那份功能相同，只有版权年份注释不同）
 #   如果哪天在 IDE 里把那个链接条目删掉了，本文件就可以直接删除。
 ################################################################################
 
-# 这里的路径要和 CCS 生成的 subdir_rules.mk 中使用的保持一致
-CL2000        := D:/ti/CCS/ccs/ccs/tools/compiler/ti-cgt-c2000_22.6.3.LTS/bin/cl2000
-CODESTART_ASM := D:/ti/CCS/C2000Ware_26_01_00_00/device_support/f28004x/common/source/f28004x_codestartbranch.asm
+# CL2000 的路径由 CCS 生成的 makefile 顶部的 CG_TOOL_ROOT 决定；下面 .asm 无任何 #include，
+# 只需保证目标机型和 ABI 与工程一致
+CL2000        := $(CG_TOOL_ROOT)/bin/cl2000
+CODESTART_ASM := ../Device/f28004x_codestartbranch.asm
 
 # 这个 .asm 没有任何 #include，只需要保证目标机型和 ABI 与工程一致
 CODESTART_FLAGS := -v28 -ml -mt \

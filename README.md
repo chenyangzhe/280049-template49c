@@ -36,4 +36,7 @@
 
 - 编译产物、`.trae` / `.mcp` / `.claude` 等本地缓存与日志均不入库（见 `.gitignore`）
 - `App/src/OLED.c`、`App/src/vofa*.c` 分别负责 OLED 显示与 VOFA+ 波形上传
-- 跨机器使用时注意 `.cproject` 中少量写死的 C2000Ware 绝对路径（如 `D:/ti/CCS/C2000Ware_26_01_00_00`），需改成本机路径
+- 工程不写死本机路径：SDK / 工具链位置一律走 CCS 变量（`${COM_TI_C2000WARE_*}`、`${CG_TOOL_ROOT}`、
+  `${workspace_loc:${ProjName}}`），跨机器或队友克隆后 `.cproject` / `makefile.targets` 都无需手改。
+  前提是本机已装好下列组件（版本需与工程一致），CCS 会自动解析这些变量：
+  C2000Ware `26.01.00.00` + SysConfig `1.28.1` + TI C2000 CGT `22.6.3.LTS`
