@@ -1,0 +1,29 @@
+# 换行符与文件类型统一处理
+# 仓库内统一存 LF，Windows 检出时由 core.autocrlf 转成 CRLF，避免反复出现 LF/CRLF 警告
+* text=auto
+
+# 二进制文件：禁止任何换行符转换
+*.out    binary
+*.obj    binary
+*.o      binary
+*.a      binary
+*.lib    binary
+*.elf    binary
+*.hex    binary
+*.bin    binary
+*.zip    binary
+*.xlsx   binary
+*.pdf    binary
+*.png    binary
+*.jpg    binary
+*.ico    binary
+
+# 源码与工程文件：显式声明为文本
+*.c       text
+*.h       text
+*.cla     text
+*.asm     text
+*.cmd     text
+*.syscfg  text
+*.md      text
+*.ccxml   text
