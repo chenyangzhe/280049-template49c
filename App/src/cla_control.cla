@@ -1,0 +1,306 @@
+//#############################################################################
+//
+// FILE:   cla_control.cla
+//
+// TITLE:  CLA 控制环路 — 20kHz ADC → DDS → Hilbert → RMS → SPWM
+//
+// DESCRIPTION:
+//   将原 C28x INT_myADC0_1_ISR 的全部控制逻辑移植到 CLA 上执行。
+//   CLA Task1 由 ADCA INT1 硬件触发 (ADC 转换完成即启动),
+//   全程不涉及 C28x CPU, 实现真正的并行卸载。
+//
+//   控制环路流程 (每个 ADC 周期):
+//     1. 读 ADC 结果寄存器 → 电压值
+//     2. 400 点 DDS: 查 sin_table 得 sin(wt), cos(wt)=sin_table[idx+100]
+//     3. Hilbert 一阶全通正交 (差分方程直接展开)
+//     4. 直流低通 + 交流 RMS (400 点整周期, Newton-Raphson 求 sqrt)
+//     5. SPWM 单极性倍频 → 更新 EPWM1/2 CMPA
+//     6. VOFA 降频标志
+//     7. 清 ADC 中断
+//
+//   Task8: 一次性初始化, C28x 在 main 中软件触发
+//
+//   注意:
+//     - CLA 不支持全局变量赋初值! 所有初始化必须在 Task8 中完成
+//     - CLA 支持 HWREGH 宏 (需要 inc/hw_types.h)
+//     - CLA 不支持 GCC 风格 asm 约束
+//
+//#############################################################################
+
+//
+// 包含共享头文件 + C2000Ware 硬件寄存器访问
+//
+#include "cla_control_shared.h"
+#include <stdint.h>
+#include "inc/hw_types.h"
+#include "inc/hw_memmap.h"
+#include "inc/hw_epwm.h"
+#include "inc/hw_adc.h"
+
+//=============================================================================
+// 全局变量 — 不能写 = 0 这样的初值! CLA 编译器会拒绝.
+// 所有初始化统一在 Task8 中完成.
+//=============================================================================
+
+/* ---- DDS 相角发生器 ---- */
+uint16_t cla_wt_idx;
+
+/* ---- sin 查找表 (C28x 在 main 中用 __sin 填充) ---- */
+/* cla_sin_table[i] = sin(2π * i / 400), i = 0..399 */
+float cla_sin_table[CLA_SIN_TABLE_SIZE];
+
+/* ---- ADC 采样结果 ---- */
+float cla_adc_raw;
+float cla_adc_voltage;
+
+/* ---- DDS 正弦参考 ---- */
+float cla_wt;
+float cla_sin_ref;
+float cla_cos_ref;
+
+/* ---- Hilbert 全通正交器 ---- */
+float cla_hil_kq;
+float cla_hil_x1;
+float cla_hil_beta;
+
+/* ---- 直流低通 + RMS ---- */
+float cla_adc_dc;
+float cla_adc_ac_rms;
+float cla_rms_sum;
+float cla_rms_sumSq;
+uint16_t cla_rms_count;
+float cla_rms_result;
+
+/* ---- SPWM 输出 ---- */
+float cla_cmpa;
+float cla_cmpb;
+
+/* ---- ISR 计数 / VOFA 降频 ---- */
+uint32_t cla_isr_cnt;
+uint16_t cla_vofa_div;
+
+/* ---- CLA → C28x VOFA 发布序号 (volatile 匹配 shared.h 的 extern 声明) ---- */
+volatile uint16_t cla_vofa_seq;
+
+
+//-----------------------------------------------------------------------------
+//
+// Task 1 — 20kHz 控制环路 (ADCA INT1 硬件触发)
+//
+// 完整执行: ADC读取 → DDS查表 → Hilbert → RMS → SPWM → EPWM更新
+// 全程不需要 C28x 参与
+//
+//-----------------------------------------------------------------------------
+__attribute__((interrupt)) void Cla1Task1(void)
+{
+    //__mdebugstop();  /* 调试用: 取消注释可在调试器中暂停 */
+
+    cla_isr_cnt++;
+
+    //
+    // 1. 读取 ADC 结果 (ADCA SOC0)
+    //    ADCARESULT0 地址 = ADCARESULT_BASE + 0x00
+    //    HWREGH 在 inc/hw_types.h 中定义
+    //
+    cla_adc_raw = (float)(HWREGH(ADCARESULT_BASE));
+    cla_adc_voltage = cla_adc_raw / CLA_ADC_MAX * CLA_ADC_VREF;
+
+    //
+    // 2. 400 点 DDS: 查表得 sin(wt), cos(wt) = sin_table[(idx+100)%400]
+    //    100 = 400/4 = 90° 相移, 无需调用 sin 库函数
+    //
+    cla_wt = (float)cla_wt_idx * CLA_WT_STEP_RAD;
+
+    float sin_wt = cla_sin_table[cla_wt_idx];
+    uint16_t cos_idx = cla_wt_idx + 100U;     /* +90° 偏移 */
+    if (cos_idx >= CLA_WT_PERIOD) {
+        cos_idx -= CLA_WT_PERIOD;             /* 环形回绕 */
+    }
+    float cos_wt = cla_sin_table[cos_idx];
+
+    cla_sin_ref = CLA_MOD_DEPTH * sin_wt;
+    cla_cos_ref = CLA_MOD_DEPTH * cos_wt;
+
+    //
+    // 3. Hilbert 一阶全通正交变换
+    //    H(z) = (kq + z⁻¹) / (1 + kq·z⁻¹)
+    //    差分方程: y[n] = kq*x[n] + x[n-1] - kq*y[n-1]
+    //    输入: sin_wt (未乘调制深度的原始正弦)
+    //    输出: cla_hil_beta (在 50Hz 处精确滞后 90°)
+    //
+    float hil_out = cla_hil_kq * sin_wt + cla_hil_x1 - cla_hil_kq * cla_hil_beta;
+    cla_hil_x1   = sin_wt;
+    cla_hil_beta = hil_out;
+
+    //
+    // 4. 相角索引递增 (400 点整周期)
+    //
+    cla_wt_idx++;
+    if (cla_wt_idx >= CLA_WT_PERIOD) {
+        cla_wt_idx = 0;
+    }
+
+    //
+    // 5. 直流一阶低通: dc[n] = dc[n-1] + α*(x[n] - dc[n-1])
+    //
+    cla_adc_dc = cla_adc_dc + CLA_DC_ALPHA * (cla_adc_voltage - cla_adc_dc);
+
+    //
+    // 6. 交流 RMS (400 点整周期 + IIR 平滑)
+    //    每个采样点累加, 满 400 点结算一次
+    //
+    cla_rms_sum   += cla_adc_voltage;
+    cla_rms_sumSq += cla_adc_voltage * cla_adc_voltage;
+    cla_rms_count++;
+
+    if (cla_rms_count >= CLA_RMS_SAMPLES) {
+        float mean   = cla_rms_sum / (float)CLA_RMS_SAMPLES;
+        float meanSq = cla_rms_sumSq / (float)CLA_RMS_SAMPLES;
+        float acVar  = meanSq - (mean * mean);
+        if (acVar < 0.0f) acVar = 0.0f;
+
+        //
+        // Newton-Raphson 求 sqrt(x): y_{n+1} = 0.5*(y_n + x/y_n)
+        // 初始猜测 y0 = x, 3 次迭代精度足够 RMS 用途
+        //
+        float sqrt_val = acVar;
+        if (sqrt_val > 0.0f) {
+            sqrt_val = 0.5f * (sqrt_val + acVar / sqrt_val);
+            sqrt_val = 0.5f * (sqrt_val + acVar / sqrt_val);
+            sqrt_val = 0.5f * (sqrt_val + acVar / sqrt_val);
+        }
+        float new_rms = sqrt_val;
+
+        cla_rms_result = cla_rms_result + CLA_RMS_ALPHA * (new_rms - cla_rms_result);
+        cla_adc_ac_rms = cla_rms_result;
+
+        cla_rms_sum   = 0.0f;
+        cla_rms_sumSq = 0.0f;
+        cla_rms_count = 0;
+    }
+
+    //
+    // 7. SPWM 单极性倍频: 调制波 → CMPA
+    //    正向: duty = (Ua + 1) * TBPRD / 2
+    //    反向: duty = (-Ua + 1) * TBPRD / 2  (互补)
+    //
+    float duty_a = (cla_sin_ref + 1.0f) * (float)CLA_TBPRD * 0.5f;
+    float duty_b = (1.0f - cla_sin_ref) * (float)CLA_TBPRD * 0.5f;
+
+    //
+    // 限幅保护 [DB, TBPRD-DB]
+    // 保留比较边界, 避免极限占空比压掉 PWM 边沿后死区时序不可控.
+    //
+    if (duty_a < (float)CLA_CMP_MIN) duty_a = (float)CLA_CMP_MIN;
+    if (duty_a > (float)CLA_CMP_MAX) duty_a = (float)CLA_CMP_MAX;
+    if (duty_b < (float)CLA_CMP_MIN) duty_b = (float)CLA_CMP_MIN;
+    if (duty_b > (float)CLA_CMP_MAX) duty_b = (float)CLA_CMP_MAX;
+
+    cla_cmpa = duty_a;
+    cla_cmpb = duty_b;
+
+    //
+    // 8. 更新 EPWM1/2 CMPA 影子寄存器
+    //    CLA 直接写 EPWM CMPA, 在下一个 CTR=ZERO 自动加载
+    //    使用 HWREGH 和 hw_memmap.h 中定义的基地址
+    //
+    HWREGH(EPWM1_BASE + EPWM_O_CMPA + 1U) = (uint16_t)(duty_a + 0.5f);   /* EPWM1 CMPA */
+    HWREGH(EPWM2_BASE + EPWM_O_CMPA + 1U) = (uint16_t)(duty_b + 0.5f);   /* EPWM2 CMPA */
+
+    //
+    // 9. VOFA 降频标志 (20kHz / 20 = 1kHz)
+    //
+    cla_vofa_div++;
+    if (cla_vofa_div >= CLA_VOFA_DECIM) {
+        cla_vofa_div = 0;
+        cla_vofa_seq++;
+    }
+
+    //
+    // 10. 清除 ADCA INT1 中断标志
+    //     使用 C2000Ware hw_adc.h 中的正式寄存器偏移，避免误写 ADC 寄存器
+    //
+    HWREGH(ADCA_BASE + ADC_O_INTOVFCLR) = ADC_INTOVFCLR_ADCINT1;
+    HWREGH(ADCA_BASE + ADC_O_INTFLGCLR) = ADC_INTFLGCLR_ADCINT1;
+}
+
+
+//-----------------------------------------------------------------------------
+//
+// Task 2-7 — 未使用 (CLA 编译器要求 8 个任务都存在)
+//
+//-----------------------------------------------------------------------------
+
+__attribute__((interrupt)) void Cla1Task2(void) {}
+__attribute__((interrupt)) void Cla1Task3(void) {}
+__attribute__((interrupt)) void Cla1Task4(void) {}
+__attribute__((interrupt)) void Cla1Task5(void) {}
+__attribute__((interrupt)) void Cla1Task6(void) {}
+__attribute__((interrupt)) void Cla1Task7(void) {}
+
+
+//-----------------------------------------------------------------------------
+//
+// Task 8 — 一次性初始化 (C28x 在 main 中软件触发)
+//
+// CLA 全局变量不能在定义时赋初值, 必须在此处初始化.
+// 注意: sin 查找表由 C28x 在 main 中用 __sin() 填充,
+//       不在 Task8 中填充 (CLA 没有 sin 函数).
+//
+//-----------------------------------------------------------------------------
+__attribute__((interrupt)) void Cla1Task8(void)
+{
+    //__mdebugstop();
+
+    //
+    // DDS 初始化
+    //
+    cla_wt_idx    = 0;
+    cla_wt        = 0.0f;
+    cla_sin_ref   = 0.0f;
+    cla_cos_ref   = 0.0f;
+
+    //
+    // Hilbert 全通系数: fs=20kHz, f0=50Hz
+    //   kq = (sin(ω₀/2) - cos(ω₀/2)) / (sin(ω₀/2) + cos(ω₀/2))
+    //   ω₀ = 2π*50/20000 = 0.015708, kq ≈ -0.98441
+    //
+    cla_hil_kq   = -0.98441f;
+    cla_hil_x1   = 0.0f;
+    cla_hil_beta = 0.0f;
+
+    //
+    // ADC / RMS 初始化
+    //
+    cla_adc_raw     = 0.0f;
+    cla_adc_voltage = 0.0f;
+    cla_adc_dc      = 0.0f;
+    cla_adc_ac_rms  = 0.0f;
+
+    cla_rms_sum     = 0.0f;
+    cla_rms_sumSq   = 0.0f;
+    cla_rms_count   = 0;
+    cla_rms_result  = 0.0f;
+
+    //
+    // SPWM 初始化 (50% 占空比)
+    //
+    cla_cmpa = (float)CLA_TBPRD * 0.5f;
+    cla_cmpb = (float)CLA_TBPRD * 0.5f;
+
+    //
+    // 计数器初始化
+    //
+    cla_isr_cnt    = 0;
+    cla_vofa_div   = 0;
+    cla_vofa_seq   = 0;
+
+    //
+    // 注意: cla_sin_table[] 不在此初始化!
+    // C28x 在 main() 中用 TMU __sin() 填充, 在触发 Task8 之前完成.
+    //
+}
+
+//
+// End of file
+//

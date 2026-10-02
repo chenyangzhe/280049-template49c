@@ -1,0 +1,47 @@
+################################################################################
+# makefile.targets
+#
+# 这个文件是 CCS 给用户留的钩子：生成的 RAM/makefile 最后会执行
+#     -include ../makefile.targets
+# 所以放这里的规则会追加在 CCS 生成的规则之后，并且可以覆盖同名目标。
+# CCS 不会覆盖本文件。
+#
+# ---------------------------------------------------------------------------
+# 本文件的作用：修正 Bsp/f28004x_codestartbranch.obj 的构建规则
+#
+# 现象：
+#   链接时报  error #10008-D: cannot find file "./Bsp/f28004x_codestartbranch.obj"
+#
+# 原因：
+#   工程模型里 Bsp 文件夹下挂着一个指向
+#     D:/ti/CCS/C2000Ware_26_01_00_00/device_support/f28004x/common/source/f28004x_codestartbranch.asm
+#   的"工程外文件"（该条目在 .cproject / .project 里都查不到，只存在于 IDE 的工程模型里，
+#   在 CCS 里右键 Bsp 也不一定看得见）。
+#   CCS 给工程外文件生成的规则漏掉了 --obj_directory，于是目标文件被写到了构建根目录
+#   RAM/f28004x_codestartbranch.obj，而链接器找的是 ./Bsp/f28004x_codestartbranch.obj。
+#
+# 做法：
+#   用同一条编译命令把 --obj_directory="Bsp" 补回去，覆盖掉 CCS 生成的那条规则。
+#   构建时 make 会打印一条 "overriding recipe for target ..." 警告，属正常现象。
+#
+# 注意：
+#   如果以后升级了 C2000 编译器或改了工程路径，请同步更新下面的 CL2000 / CODESTART_ASM。
+#   如果哪天在 IDE 里把那个链接条目删掉了，本文件就可以直接删除。
+################################################################################
+
+# 这里的路径要和 CCS 生成的 subdir_rules.mk 中使用的保持一致
+CL2000        := D:/ti/CCS/ccs/ccs/tools/compiler/ti-cgt-c2000_22.6.3.LTS/bin/cl2000
+CODESTART_ASM := D:/ti/CCS/C2000Ware_26_01_00_00/device_support/f28004x/common/source/f28004x_codestartbranch.asm
+
+# 这个 .asm 没有任何 #include，只需要保证目标机型和 ABI 与工程一致
+CODESTART_FLAGS := -v28 -ml -mt \
+                   --cla_support=cla2 --float_support=fpu32 --tmu_support=tmu0 \
+                   --vcu_support=vcu0 --fp_mode=relaxed --abi=eabi \
+                   --preproc_with_compile
+
+Bsp/f28004x_codestartbranch.obj: $(CODESTART_ASM) $(GEN_OPTS) | $(GEN_FILES) $(GEN_MISC_FILES)
+	@echo 'Building file: "$<"'
+	@echo 'Invoking: C2000 Compiler (makefile.targets 覆盖规则)'
+	"$(CL2000)" $(CODESTART_FLAGS) --preproc_dependency="Bsp/$(basename $(<F)).d_raw" --obj_directory="Bsp" $(GEN_OPTS__FLAG) "$<"
+	@echo 'Finished building: "$<"'
+	@echo ' '

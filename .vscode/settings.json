@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "interrupt.h": "c",
+        "random": "c",
+        "PR.C": "cpp"
+    }
+}

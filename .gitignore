@@ -1,0 +1,27 @@
+# ===== IDE / AI 工具本地缓存（不要提交）=====
+.trae/
+.claude/
+.mcp/
+.theia/
+.launches/
+
+# ===== CCS / C2000 编译输出 =====
+Debug/
+Release/
+RAM/
+FLASH_RUN/
+*.obj
+*.o
+*.d
+*.out
+*.map
+*.opt
+*.mk
+ccsObjs.opt
+*_linkInfo.xml
+*.syscfg.bak
+
+# ===== 系统杂物 =====
+Thumbs.db
+Desktop.ini
+*.log
