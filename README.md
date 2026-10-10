@@ -36,6 +36,12 @@
 
 - 编译产物、`.trae` / `.mcp` / `.claude` 等本地缓存与日志均不入库（见 `.gitignore`）
 - `App/src/OLED.c`、`App/src/vofa*.c` 分别负责 OLED 显示与 VOFA+ 波形上传
+- **`board.c` / `board.h` 在哪、怎么改**：唯一真源是 `Bsp/untitled.syscfg`（在 CCS 里双击打开 GUI
+  配置引脚 / 外设）。CCS 是"构建步骤"式的，每次构建把它生成到构建目录 —— `RAM/syscfg/`、
+  `FLASH_RUN/syscfg/`，**编译用的就是那一份**。`makefile.targets` 里加了一条镜像规则，每次构建会把
+  `syscfg/board.c|h` 同步一份回 `Bsp/`，所以改完 `.syscfg` 重新构建后 `Bsp/board.c` 就是最新的，
+  可以直接看，也能进 git diff。镜像文件已在 `.cproject` 中排除出构建，只是"镜子"、不参与编译，
+  不会重复符号。**要改配置请改 `Bsp/untitled.syscfg`，手改 `Bsp/board.c` 会在下次构建被覆盖。**
 - **跨机器 / 队友克隆时需要留意的唯一一处**：`.cproject` 里有 9 条写死的安装路径 —— 7 处指向
   `C2000Ware_26_01_00_00/.metadata/sdk.json`（SysConfig 的产品清单，RAM / FLASH_RUN / Debug 各配置合计 7 处），
   2 处指向 fastRTS / CGT 的库文件。C2000Ware 或编译器装在别的位置时，把这 9 条一并替换。
