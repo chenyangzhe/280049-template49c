@@ -13,8 +13,8 @@
 #   链接时报  error #10008-D: cannot find file "./Bsp/f28004x_codestartbranch.obj"
 #
 # 原因：
-#   工程模型里 Bsp 文件夹下挂着一个指向
-#     D:/ti/CCS/C2000Ware_26_01_00_00/device_support/f28004x/common/source/f28004x_codestartbranch.asm
+#   工程模型里 Bsp 文件夹下挂着一个指向 C2000Ware 安装目录里
+#     device_support/f28004x/common/source/f28004x_codestartbranch.asm
 #   的"工程外文件"（该条目在 .cproject / .project 里都查不到，只存在于 IDE 的工程模型里，
 #   在 CCS 里右键 Bsp 也不一定看得见）。
 #   CCS 给工程外文件生成的规则漏掉了 --obj_directory，于是目标文件被写到了构建根目录
@@ -25,13 +25,17 @@
 #   构建时 make 会打印一条 "overriding recipe for target ..." 警告，属正常现象。
 #
 # 注意：
-#   如果以后升级了 C2000 编译器或改了工程路径，请同步更新下面的 CL2000 / CODESTART_ASM。
+#   下面两条已经做成与机器无关，换电脑 / 换队友克隆后都不用手改：
+#     - CL2000 用 CCS 在生成的 makefile 里已经定义好的 $(CG_TOOL_ROOT)，换编译器版本不用改
+#     - CODESTART_ASM 指向工程内的 Device/f28004x_codestartbranch.asm，换 C2000Ware 版本或
+#       安装路径也不用改（与 C2000Ware 安装里那份功能相同，只有版权年份注释不同）
 #   如果哪天在 IDE 里把那个链接条目删掉了，本文件就可以直接删除。
 ################################################################################
 
-# 这里的路径要和 CCS 生成的 subdir_rules.mk 中使用的保持一致
-CL2000        := D:/ti/CCS/ccs/ccs/tools/compiler/ti-cgt-c2000_22.6.3.LTS/bin/cl2000
-CODESTART_ASM := D:/ti/CCS/C2000Ware_26_01_00_00/device_support/f28004x/common/source/f28004x_codestartbranch.asm
+# CL2000 的路径由 CCS 生成的 makefile 顶部的 CG_TOOL_ROOT 决定；下面 .asm 无任何 #include，
+# 只需保证目标机型和 ABI 与工程一致
+CL2000        := $(CG_TOOL_ROOT)/bin/cl2000
+CODESTART_ASM := ../Device/f28004x_codestartbranch.asm
 
 # 这个 .asm 没有任何 #include，只需要保证目标机型和 ABI 与工程一致
 CODESTART_FLAGS := -v28 -ml -mt \
@@ -45,3 +49,34 @@ Bsp/f28004x_codestartbranch.obj: $(CODESTART_ASM) $(GEN_OPTS) | $(GEN_FILES) $(G
 	"$(CL2000)" $(CODESTART_FLAGS) --preproc_dependency="Bsp/$(basename $(<F)).d_raw" --obj_directory="Bsp" $(GEN_OPTS__FLAG) "$<"
 	@echo 'Finished building: "$<"'
 	@echo ' '
+
+################################################################################
+# 把 SysConfig 生成物镜像一份到 Bsp/
+#
+# 这样：改 Bsp/untitled.syscfg → 重新构建 → Bsp/board.c / Bsp/board.h 就地更新。
+# 好处是能直接看，而且生成代码进了 git，改引脚/外设时能看到 diff。
+#
+# 为什么本来没有：CCS 的 SysConfig 是"构建步骤"，输出目录固定落在构建配置目录下
+# （RAM/syscfg/、FLASH_RUN/syscfg/），从不写源码树；CCS 也没暴露改输出目录的选项，
+# 所以只能在这里把结果同步过来。
+#
+# 注意：
+#   - Bsp/board.c、Bsp/board.h 已在 .cproject 里排除出构建，编译始终用 syscfg/ 那份，
+#     这里只是"镜子"，不参与编译，不会造成重复符号。
+#   - 手改 Bsp/board.c 会在下次构建时被覆盖 —— 要改配置请改 Bsp/untitled.syscfg。
+#   - 不需要镜像就删掉下面这三条规则。
+################################################################################
+
+# 注意：make 的工作目录是构建配置目录（RAM/、FLASH_RUN/），不是工程根目录。
+# 所以这里是 ../Bsp/ 而不是 Bsp/ —— 写成 Bsp/ 会把文件复制到 RAM/Bsp/ 里，
+# 源码树里的 Bsp/board.c 永远不动。
+../Bsp/board.c: syscfg/board.c
+	copy /Y "syscfg\board.c" "..\Bsp\board.c" >NUL
+	@echo Mirrored: syscfg/board.c to Bsp/board.c
+
+../Bsp/board.h: syscfg/board.h
+	copy /Y "syscfg\board.h" "..\Bsp\board.h" >NUL
+	@echo Mirrored: syscfg/board.h to Bsp/board.h
+
+# 追加依赖（不改动 CCS 生成的 all 规则），让镜像跟着每次构建走
+all: ../Bsp/board.c ../Bsp/board.h

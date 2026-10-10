@@ -36,10 +36,10 @@
 //*****************************************************************************
 //
 // Board Configurations
-// Initializes the rest of the modules. 
-// Call this function in your application if you wish to do all module 
+// Initializes the rest of the modules.
+// Call this function in your application if you wish to do all module
 // initialization.
-// If you wish to not use some of the initializations, instead of the 
+// If you wish to not use some of the initializations, instead of the
 // Board_init use the individual Module_inits
 //
 //*****************************************************************************
@@ -56,6 +56,7 @@ void Board_init()
 	ADC_init();
 	DMA_init();
 	EPWM_init();
+	GPIO_init();
 	I2C_init();
 	SCI_init();
 
@@ -72,7 +73,7 @@ void PinMux_init()
 	//
 	// PinMux for modules assigned to CPU1
 	//
-	
+
 	//
 	// EPWM1 -> myEPWM1 Pinmux
 	//
@@ -95,6 +96,8 @@ void PinMux_init()
 	GPIO_setPadConfig(myEPWM2_EPWMB_GPIO, GPIO_PIN_TYPE_STD);
 	GPIO_setQualificationMode(myEPWM2_EPWMB_GPIO, GPIO_QUAL_SYNC);
 
+	// GPIO7 -> led Pinmux
+	GPIO_setPinConfig(GPIO_7_GPIO7);
 	//
 	// I2CA -> oled Pinmux
 	//
@@ -137,7 +140,7 @@ void myADC0_init(){
 	// This function sets the analog voltage reference to internal (with the reference voltage of 1.65V or 2.5V) or external for ADC
 	// which is same as ASysCtl APIs.
 	//
-	ADC_setVREF(myADC0_BASE, ADC_REFERENCE_EXTERNAL, ADC_REFERENCE_3_3V);
+	ADC_setVREF(myADC0_BASE, ADC_REFERENCE_EXTERNAL, ADC_REFERENCE_2_5V);
 	//
 	// Configures the analog-to-digital converter module prescaler.
 	//
@@ -259,7 +262,7 @@ void myCLA0_init(){
     CLA_setTriggerSource(CLA_TASK_7, CLA_TRIGGER_SOFTWARE);
     //
     // CLA Task 8
-    //      
+    //
     CLA_mapTaskVector(myCLA0_BASE, CLA_MVECT_8, (uint16_t)&Cla1Task8);
     CLA_setTriggerSource(CLA_TASK_8, CLA_TRIGGER_SOFTWARE);
     //
@@ -290,11 +293,11 @@ void CLA_init()
     // Copy the program and constants from FLASH to RAM before configuring
     // the CLA
     //
-    memcpy((uint32_t *)&Cla1ProgRunStart, (uint32_t *)&Cla1ProgLoadStart,
-           (uint32_t)&Cla1ProgLoadSize);
-    memcpy((uint32_t *)&Cla1ConstRunStart, (uint32_t *)&Cla1ConstLoadStart,
-        (uint32_t)&Cla1ConstLoadSize );
 
+    memcpy((uint32_t *)((uint32_t)&Cla1ProgRunStart ) , (uint32_t *)&Cla1ProgLoadStart,
+           (uint32_t)&Cla1ProgLoadSize);
+    memcpy((uint32_t *)((uint32_t)&Cla1ConstRunStart ), (uint32_t *)&Cla1ConstLoadStart,
+        (uint32_t)&Cla1ConstLoadSize );
 
 #endif //CMDTOOL
 #endif //_FLASH
@@ -341,7 +344,6 @@ void EPWM_init(){
     EPWM_setCounterCompareValue(myEPWM1_BASE, EPWM_COUNTER_COMPARE_B, 0);	
     EPWM_setCounterCompareShadowLoadMode(myEPWM1_BASE, EPWM_COUNTER_COMPARE_B, EPWM_COMP_LOAD_ON_CNTR_ZERO);	
     EPWM_disableActionQualifierShadowLoadMode(myEPWM1_BASE, EPWM_ACTION_QUALIFIER_A);	
-    EPWM_setActionQualifierShadowLoadMode(myEPWM1_BASE, EPWM_ACTION_QUALIFIER_A, EPWM_AQ_LOAD_ON_CNTR_ZERO);	
     EPWM_setActionQualifierAction(myEPWM1_BASE, EPWM_AQ_OUTPUT_A, EPWM_AQ_OUTPUT_HIGH, EPWM_AQ_OUTPUT_ON_TIMEBASE_ZERO);	
     EPWM_setActionQualifierAction(myEPWM1_BASE, EPWM_AQ_OUTPUT_A, EPWM_AQ_OUTPUT_LOW, EPWM_AQ_OUTPUT_ON_TIMEBASE_PERIOD);	
     EPWM_setActionQualifierAction(myEPWM1_BASE, EPWM_AQ_OUTPUT_A, EPWM_AQ_OUTPUT_LOW, EPWM_AQ_OUTPUT_ON_TIMEBASE_UP_CMPA);	
@@ -349,7 +351,6 @@ void EPWM_init(){
     EPWM_setActionQualifierAction(myEPWM1_BASE, EPWM_AQ_OUTPUT_A, EPWM_AQ_OUTPUT_NO_CHANGE, EPWM_AQ_OUTPUT_ON_TIMEBASE_UP_CMPB);	
     EPWM_setActionQualifierAction(myEPWM1_BASE, EPWM_AQ_OUTPUT_A, EPWM_AQ_OUTPUT_NO_CHANGE, EPWM_AQ_OUTPUT_ON_TIMEBASE_DOWN_CMPB);	
     EPWM_disableActionQualifierShadowLoadMode(myEPWM1_BASE, EPWM_ACTION_QUALIFIER_B);	
-    EPWM_setActionQualifierShadowLoadMode(myEPWM1_BASE, EPWM_ACTION_QUALIFIER_B, EPWM_AQ_LOAD_ON_CNTR_ZERO);	
     EPWM_setActionQualifierAction(myEPWM1_BASE, EPWM_AQ_OUTPUT_B, EPWM_AQ_OUTPUT_LOW, EPWM_AQ_OUTPUT_ON_TIMEBASE_ZERO);	
     EPWM_setActionQualifierAction(myEPWM1_BASE, EPWM_AQ_OUTPUT_B, EPWM_AQ_OUTPUT_HIGH, EPWM_AQ_OUTPUT_ON_TIMEBASE_PERIOD);	
     EPWM_setActionQualifierAction(myEPWM1_BASE, EPWM_AQ_OUTPUT_B, EPWM_AQ_OUTPUT_HIGH, EPWM_AQ_OUTPUT_ON_TIMEBASE_UP_CMPA);	
@@ -365,6 +366,8 @@ void EPWM_init(){
     EPWM_setFallingEdgeDelayCountShadowLoadMode(myEPWM1_BASE, EPWM_FED_LOAD_ON_CNTR_ZERO);	
     EPWM_disableFallingEdgeDelayCountShadowLoadMode(myEPWM1_BASE);	
     EPWM_setFallingEdgeDelayCount(myEPWM1_BASE, 10);	
+    EPWM_setDeadBandControlShadowLoadMode(myEPWM1_BASE, EPWM_DB_LOAD_ON_CNTR_ZERO);	
+    EPWM_disableDeadBandControlShadowLoadMode(myEPWM1_BASE);	
     EPWM_enableInterrupt(myEPWM1_BASE);	
     EPWM_setInterruptSource(myEPWM1_BASE, EPWM_INT_TBCTR_PERIOD);	
     EPWM_setInterruptEventCount(myEPWM1_BASE, 2);	
@@ -383,7 +386,6 @@ void EPWM_init(){
     EPWM_setCounterCompareValue(myEPWM2_BASE, EPWM_COUNTER_COMPARE_B, 0);	
     EPWM_setCounterCompareShadowLoadMode(myEPWM2_BASE, EPWM_COUNTER_COMPARE_B, EPWM_COMP_LOAD_ON_CNTR_ZERO);	
     EPWM_disableActionQualifierShadowLoadMode(myEPWM2_BASE, EPWM_ACTION_QUALIFIER_A);	
-    EPWM_setActionQualifierShadowLoadMode(myEPWM2_BASE, EPWM_ACTION_QUALIFIER_A, EPWM_AQ_LOAD_ON_CNTR_ZERO);	
     EPWM_setActionQualifierAction(myEPWM2_BASE, EPWM_AQ_OUTPUT_A, EPWM_AQ_OUTPUT_HIGH, EPWM_AQ_OUTPUT_ON_TIMEBASE_ZERO);	
     EPWM_setActionQualifierAction(myEPWM2_BASE, EPWM_AQ_OUTPUT_A, EPWM_AQ_OUTPUT_LOW, EPWM_AQ_OUTPUT_ON_TIMEBASE_PERIOD);	
     EPWM_setActionQualifierAction(myEPWM2_BASE, EPWM_AQ_OUTPUT_A, EPWM_AQ_OUTPUT_LOW, EPWM_AQ_OUTPUT_ON_TIMEBASE_UP_CMPA);	
@@ -391,7 +393,6 @@ void EPWM_init(){
     EPWM_setActionQualifierAction(myEPWM2_BASE, EPWM_AQ_OUTPUT_A, EPWM_AQ_OUTPUT_NO_CHANGE, EPWM_AQ_OUTPUT_ON_TIMEBASE_UP_CMPB);	
     EPWM_setActionQualifierAction(myEPWM2_BASE, EPWM_AQ_OUTPUT_A, EPWM_AQ_OUTPUT_NO_CHANGE, EPWM_AQ_OUTPUT_ON_TIMEBASE_DOWN_CMPB);	
     EPWM_disableActionQualifierShadowLoadMode(myEPWM2_BASE, EPWM_ACTION_QUALIFIER_B);	
-    EPWM_setActionQualifierShadowLoadMode(myEPWM2_BASE, EPWM_ACTION_QUALIFIER_B, EPWM_AQ_LOAD_ON_CNTR_ZERO);	
     EPWM_setActionQualifierAction(myEPWM2_BASE, EPWM_AQ_OUTPUT_B, EPWM_AQ_OUTPUT_LOW, EPWM_AQ_OUTPUT_ON_TIMEBASE_ZERO);	
     EPWM_setActionQualifierAction(myEPWM2_BASE, EPWM_AQ_OUTPUT_B, EPWM_AQ_OUTPUT_HIGH, EPWM_AQ_OUTPUT_ON_TIMEBASE_PERIOD);	
     EPWM_setActionQualifierAction(myEPWM2_BASE, EPWM_AQ_OUTPUT_B, EPWM_AQ_OUTPUT_HIGH, EPWM_AQ_OUTPUT_ON_TIMEBASE_UP_CMPA);	
@@ -407,6 +408,25 @@ void EPWM_init(){
     EPWM_setFallingEdgeDelayCountShadowLoadMode(myEPWM2_BASE, EPWM_FED_LOAD_ON_CNTR_ZERO);	
     EPWM_disableFallingEdgeDelayCountShadowLoadMode(myEPWM2_BASE);	
     EPWM_setFallingEdgeDelayCount(myEPWM2_BASE, 10);	
+    EPWM_setDeadBandControlShadowLoadMode(myEPWM2_BASE, EPWM_DB_LOAD_ON_CNTR_ZERO);	
+    EPWM_disableDeadBandControlShadowLoadMode(myEPWM2_BASE);	
+}
+
+//*****************************************************************************
+//
+// GPIO Configurations
+//
+//*****************************************************************************
+void GPIO_init(){
+	led_init();
+}
+
+void led_init(){
+	GPIO_writePin(led, 1);
+	GPIO_setPadConfig(led, GPIO_PIN_TYPE_STD);
+	GPIO_setQualificationMode(led, GPIO_QUAL_SYNC);
+	GPIO_setDirectionMode(led, GPIO_DIR_MODE_OUT);
+	GPIO_setControllerCore(led, GPIO_CORE_CPU1);
 }
 
 //*****************************************************************************

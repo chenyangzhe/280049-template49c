@@ -89,6 +89,10 @@ extern "C"
 #define GPIO_PIN_EPWM2_B 3
 #define myEPWM2_EPWMB_GPIO 3
 #define myEPWM2_EPWMB_PIN_CONFIG GPIO_3_EPWM2_B
+//
+// GPIO7 - GPIO Settings
+//
+#define led_GPIO_PIN_CONFIG GPIO_7_GPIO7
 
 //
 // I2CA -> oled Pinmux
@@ -214,6 +218,14 @@ void myDMA0_init();
 
 //*****************************************************************************
 //
+// GPIO Configurations
+//
+//*****************************************************************************
+#define led 7
+void led_init();
+
+//*****************************************************************************
+//
 // I2C Configurations
 //
 //*****************************************************************************
@@ -265,6 +277,7 @@ void	ASYSCTL_init();
 void	CLA_init();
 void	DMA_init();
 void	EPWM_init();
+void	GPIO_init();
 void	I2C_init();
 void	MEMCFG_init();
 void	SCI_init();
