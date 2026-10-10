@@ -152,7 +152,8 @@ epwm2.epwm.epwm_bPin.$assign                                     = "GPIO3";
 gpio1.$name             = "led";
 gpio1.direction         = "GPIO_DIR_MODE_OUT";
 gpio1.writeInitialValue = true;
-gpio1.gpioPin.$assign   = "GPIO4";
+gpio1.initialValue      = 1;
+gpio1.gpioPin.$assign   = "GPIO7";
 
 i2c1.$name                  = "oled";
 i2c1.duty                   = "I2C_DUTYCYCLE_50";

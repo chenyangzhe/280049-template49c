@@ -28,14 +28,28 @@ int main(void)
     /* ↓↓↓ 【PWM 测试入口】不返回。
      *     要恢复原来的 SPWM 控制环，把下面这一行注释掉即可。
      *     想调频率/占空比/死区，改 App/src/pwm_test.c 顶部那几个宏。 */
-    PwmTest_Run();
+    // PwmTest_Run();
 
     /* ---------- 基础初始化 ---------- */
     Device_init();
     Interrupt_initModule();
     Interrupt_initVectorTable();
     Board_init();
-
+    // /* ---------- GPIO7（丝印 04B）拉高 ----------
+    //  * 注意：GPIO_writePin 第一个参数是引脚号，写 led（=7）或直接写 7。
+    //  *       写 GPIO_7_GPIO7 是错的 —— 那是给 GPIO_setPinConfig 用的复用配置值
+    //  *       (0x00060E00)，当引脚号传进去会算到一个乱地址上，引脚不会动。
+    //  *
+    //  * 下面把复用/方向/焊盘显式再写一遍（绕开 led_init 那条间接路径），
+    //  * 排查完可以只留最后一句 GPIO_writePin(led, 1); */
+    // EALLOW;
+    // GPIO_setPinConfig(GPIO_7_GPIO7);                 /* 复用回普通 GPIO */
+    // GPIO_setPadConfig(led, GPIO_PIN_TYPE_STD);       /* 推挽，关上下拉 */
+    // GPIO_setQualificationMode(led, GPIO_QUAL_SYNC);
+    // GPIO_setDirectionMode(led, GPIO_DIR_MODE_OUT);   /* 方向：输出 */
+    // GPIO_setControllerCore(led, GPIO_CORE_CPU1);
+    // EDIS;
+    GPIO_writePin(led, 1);                           /* 拉高 */
     /* ---------- 控制环初始化（PR） ---------- */
     Control_Init();
 
@@ -67,11 +81,11 @@ int main(void)
     EPWM_setTimeBaseCounterMode(EPWM1_BASE, EPWM_COUNTER_MODE_UP_DOWN);
     EPWM_setTimeBaseCounterMode(EPWM2_BASE, EPWM_COUNTER_MODE_UP_DOWN);
 
+
     /* ---------- 主循环 ---------- */
     for (;;)
     {
         uint16_t vofaSeqNow = cla_vofa_seq;
-
         if (vofaSeqNow != vofaSeqSeen)
         {
             vofaSeqSeen = vofaSeqNow;
